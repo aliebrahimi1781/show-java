@@ -45,11 +45,12 @@ public class ProcessService extends Service {
 
     public Handler UIHandler;
 
-    public Notify processNotify;
+    private Notify processNotify;
     public ApkParser apkParser;
 
     public String decompilerToUse = "cfr";
 
+    private int startID;
 
     public void onCreate() {
         super.onCreate();
@@ -61,6 +62,7 @@ public class ProcessService extends Service {
     public int onStartCommand(Intent intent, int flags, int startId) {
         super.onStartCommand(intent, flags, startId);
 
+        this.startID = startId;
         /**
          * Initialize a handler for posting runnables that have to run on the UI thread
          */
@@ -93,14 +95,18 @@ public class ProcessService extends Service {
              *
              * Uses the {@link #killSelf()} method.
              */
-            killSelf();
 
+            int toKillStartId = intent.getIntExtra("startId",-1);
+            killSelf(true, toKillStartId);
+
+        } else if(intent.getAction().equals(Constants.ACTION.STOP_PROCESS_FOR_NEW)) {
+            killSelf(false, -1);
         }
 
         return START_NOT_STICKY;
     }
 
-    protected void handleIntent(Intent workIntent) {
+    private void handleIntent(Intent workIntent) {
 
         SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
         STACK_SIZE = Integer.valueOf(prefs.getString("thread_stack_size", String.valueOf(20 * 1024 * 1024)));
@@ -164,7 +170,7 @@ public class ProcessService extends Service {
                 }
             })).start();
         } else {
-            killSelf();
+            killSelf(true, startID);
         }
     }
 
@@ -297,6 +303,7 @@ public class ProcessService extends Service {
 
         Intent stopIntent = new Intent(this, ProcessService.class);
         stopIntent.setAction(Constants.ACTION.STOP_PROCESS);
+        stopIntent.putExtra("startID", startID);
 
         PendingIntent pendingStopIntent = PendingIntent.getService(this, 0, stopIntent, 0);
 
@@ -326,7 +333,6 @@ public class ProcessService extends Service {
     public void onDestroy() {
         super.onDestroy();
         try {
-            kill();
             processNotify.cancel();
         } catch (Exception e) {
             Ln.e(e);
@@ -339,14 +345,14 @@ public class ProcessService extends Service {
         return null;
     }
 
-    public void kill() {
+    private void kill() {
         stopForeground(true);
         stopSelf();
     }
 
     private class ToastRunnable implements Runnable {
 
-        String mText;
+        final String mText;
 
         public ToastRunnable(String text) {
             mText = text;
@@ -358,16 +364,18 @@ public class ProcessService extends Service {
         }
     }
 
-    private void killSelf(){
-        broadcastStatus("exit");
+    private void killSelf(boolean shouldBroadcast, int startID){
+        if(shouldBroadcast){
+            broadcastStatus("exit");
+        }
         stopForeground(true);
+        stopSelf(startID);
         try {
             NotificationManager mNotifyManager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
             mNotifyManager.cancel(Constants.PROCESS_NOTIFICATION_ID);
-            Utils.killAllProcessorServices(this);
+            Utils.forceKillAllProcessorServices(this);
         } catch (Exception e) {
             Ln.e(e);
         }
-        stopSelf();
     }
 }
